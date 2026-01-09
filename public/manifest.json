@@ -1,0 +1,25 @@
+{
+  "author": "Magic Apps Ltd.",
+  "contributors": [
+    "John Hailero <john@magic.apps>"
+  ],
+  "appId": "6957dd13cb9fa11bbef9fcbb",
+  "version": "1.3.5",
+  "versionDescription": "Hide Add Team button on employee cards in public mode",
+  "config": {
+    "fields": {
+      "workflowId": {
+        "type": "string"
+      },
+      "skeletons": {
+        "type": "json"
+      },
+      "orgCustomNames": {
+        "type": "json"
+      },
+      "defaultOrgId": {
+        "type": "string"
+      }
+    }
+  }
+}

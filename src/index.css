@@ -1,0 +1,36 @@
+@import url('https://fonts.googleapis.com/css?family=Nunito+Sans:200,400,400i,600,700,800');
+
+:root[data-theme=light] {
+  --chakra-colors-chakra-body-bg: var(--chakra-colors-white) !important;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+/* react-d3-tree connector line styles */
+.org-chart-link {
+  stroke: #CBD5E0 !important;
+  stroke-width: 2px !important;
+}
+
+/* Dark mode connector lines */
+[data-theme="dark"] .org-chart-link {
+  stroke: #4A5568 !important;
+}
+
+/* Hide default node circles from react-d3-tree */
+.rd3t-node circle,
+.rd3t-leaf-node circle {
+  display: none !important;
+}
+
+/* Remove any default node styling */
+.rd3t-node,
+.rd3t-leaf-node {
+  stroke: none !important;
+  fill: none !important;
+}
+
