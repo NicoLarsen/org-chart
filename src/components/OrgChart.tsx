@@ -19,6 +19,8 @@ import { FAAnglesUp } from '../hailerTheme/hailerIcons/FAAnglesUp';
 import { FABuilding } from '../hailerTheme/hailerIcons/FABuilding';
 import { FAPlus } from '../hailerTheme/hailerIcons/FAPlus';
 import { HailerShare } from '../hailerTheme/hailerIcons/HailerShare';
+import { FATableCells } from '../hailerTheme/hailerIcons/FATableCells';
+import PermissionsMatrix from './PermissionsMatrix';
 
 // App ID and workspace ID for public URL generation
 const APP_ID = '6957dd13cb9fa11bbef9fcbb';
@@ -386,6 +388,9 @@ export default function OrgChart({ isPublic = false }: OrgChartProps) {
   const [deleteConfirmSkeletonId, setDeleteConfirmSkeletonId] = useState<string | null>(null);
   // Team dashboard popup state
   const [dashboardTeamId, setDashboardTeamId] = useState<string | null>(null);
+
+  // Permissions matrix popup state
+  const [showPermissionsMatrix, setShowPermissionsMatrix] = useState(false);
 
   // Track employee IDs that have pending team creation (showing Knight Rider skeleton)
   const [pendingTeamCreations, setPendingTeamCreations] = useState<Set<string>>(new Set());
@@ -2331,6 +2336,26 @@ export default function OrgChart({ isPublic = false }: OrgChartProps) {
         >
           <Icon as={HailerShare} boxSize="16px" />
         </Box>
+
+        {/* Permissions Matrix FAB */}
+        <Box
+          bg="orange.500"
+          color="white"
+          borderRadius="full"
+          w="40px"
+          h="40px"
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          cursor="pointer"
+          boxShadow="lg"
+          onClick={() => setShowPermissionsMatrix(true)}
+          _hover={{ bg: 'orange.600', transform: 'scale(1.05)' }}
+          transition="all 0.15s"
+          title="Permissions Matrix"
+        >
+          <Icon as={FATableCells} boxSize="16px" />
+        </Box>
       </HStack>
       )}
 
@@ -2368,6 +2393,14 @@ export default function OrgChart({ isPublic = false }: OrgChartProps) {
         employees={employeesRef.current}
         teams={teamsData}
         onOpenEmployee={(employeeId) => hailer?.ui.activity.open(employeeId)}
+      />
+
+      {/* Permissions Matrix Popup */}
+      <PermissionsMatrix
+        isOpen={showPermissionsMatrix}
+        onClose={() => setShowPermissionsMatrix(false)}
+        onOpenTeam={(teamId) => hailer?.ui.activity.open(teamId)}
+        teams={teamsData}
       />
 
       {/* Delete Confirmation Dialog */}
