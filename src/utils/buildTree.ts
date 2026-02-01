@@ -4,6 +4,7 @@ export interface TreeBuildResult {
   tree: TreeNode | null;
   error: DataIntegrityError | null;
   availableOrganizations: OrganizationOption[] | null;
+  orphans: Employee[];
 }
 
 export interface OrganizationOption {
@@ -26,8 +27,14 @@ export function buildTree(employees: Employee[]): TreeNode | null {
   return result.tree;
 }
 
+// Helper to get the effective supervisor for tree building
+// Uses visualSupervisor if available (includes vacancies), falls back to supervisor
+function getEffectiveSupervisor(emp: Employee): { _id: string; name: string } | null | undefined {
+  return emp.visualSupervisor ?? emp.supervisor;
+}
+
 export function buildTreeWithValidation(employees: Employee[], selectedOrgTeamId?: string | null): TreeBuildResult {
-  if (employees.length === 0) return { tree: null, error: null, availableOrganizations: null };
+  if (employees.length === 0) return { tree: null, error: null, availableOrganizations: null, orphans: [] };
 
   const employeeMap = new Map<string, Employee>();
   employees.forEach(emp => employeeMap.set(emp._id, emp));
@@ -37,7 +44,8 @@ export function buildTreeWithValidation(employees: Employee[], selectedOrgTeamId
 
   // Check for circular references (employee is their own supervisor)
   employees.forEach(emp => {
-    if (emp.supervisor && emp.supervisor._id === emp._id) {
+    const supervisor = getEffectiveSupervisor(emp);
+    if (supervisor && supervisor._id === emp._id) {
       // Self-reference is OK for CEO/root - skip those
       const positionStr = getPositionString(emp);
       const isCEO = positionStr.includes('ceo') || positionStr.includes('chief executive');
@@ -53,20 +61,21 @@ export function buildTreeWithValidation(employees: Employee[], selectedOrgTeamId
 
   // Check for supervisors that don't exist in the employee list
   employees.forEach(emp => {
-    if (emp.supervisor && emp.supervisor._id && !employeeMap.has(emp.supervisor._id)) {
+    const supervisor = getEffectiveSupervisor(emp);
+    if (supervisor && supervisor._id && !employeeMap.has(supervisor._id)) {
       // Check if supervisor might be a skeleton (starts with 'skeleton-')
-      if (!emp.supervisor._id.startsWith('skeleton-')) {
+      if (!supervisor._id.startsWith('skeleton-')) {
         issues.push({
           _id: emp._id,
           name: emp.name,
-          issue: `Supervisor "${emp.supervisor.name || emp.supervisor._id}" not found in active employees`
+          issue: `Supervisor "${supervisor.name || supervisor._id}" not found in active employees`
         });
       }
     }
   });
 
   // Find all root employees (no supervisor) and group by team
-  const rootEmployees = employees.filter(emp => !emp.supervisor);
+  const rootEmployees = employees.filter(emp => !getEffectiveSupervisor(emp));
   console.log('[buildTree] Root employees (no supervisor):', rootEmployees.map(e => ({ name: e.name, team: e.team })));
 
   const teamsWithRoots = new Map<string, { teamName: string; employees: Employee[] }>();
@@ -93,9 +102,10 @@ export function buildTreeWithValidation(employees: Employee[], selectedOrgTeamId
     if (visited.has(emp._id)) return null; // Circular reference
     visited.add(emp._id);
 
-    if (!emp.supervisor) return emp;
+    const effectiveSupervisor = getEffectiveSupervisor(emp);
+    if (!effectiveSupervisor) return emp;
 
-    const supervisor = employeeMap.get(emp.supervisor._id);
+    const supervisor = employeeMap.get(effectiveSupervisor._id);
     if (!supervisor) return null; // Supervisor not in list
 
     return findRootEmployee(supervisor, visited);
@@ -144,7 +154,7 @@ export function buildTreeWithValidation(employees: Employee[], selectedOrgTeamId
         const orgEmployees = employees.filter(emp => orgEmployeeIds.has(emp._id));
 
         // Find root for this org (employee with no supervisor in the selected team)
-        const orgRoot = orgEmployees.find(emp => !emp.supervisor) || orgEmployees[0];
+        const orgRoot = orgEmployees.find(emp => !getEffectiveSupervisor(emp)) || orgEmployees[0];
 
         if (orgRoot) {
           const orgEmployeeMap = new Map<string, Employee>();
@@ -153,7 +163,10 @@ export function buildTreeWithValidation(employees: Employee[], selectedOrgTeamId
           const placed = new Set<string>();
           const rootNode = buildNodeSimple(orgRoot, orgEmployeeMap, placed);
 
-          return { tree: rootNode, error: null, availableOrganizations: organizations };
+          // Find orphans in this org
+          const orgOrphans = orgEmployees.filter(emp => !placed.has(emp._id));
+
+          return { tree: rootNode, error: null, availableOrganizations: organizations, orphans: orgOrphans };
         }
       }
     }
@@ -162,7 +175,8 @@ export function buildTreeWithValidation(employees: Employee[], selectedOrgTeamId
     return {
       tree: null,
       error: null,
-      availableOrganizations: organizations
+      availableOrganizations: organizations,
+      orphans: []
     };
   }
 
@@ -170,8 +184,9 @@ export function buildTreeWithValidation(employees: Employee[], selectedOrgTeamId
   const root = employees.find(emp => {
     const positionStr = getPositionString(emp);
     const isCEO = positionStr.includes('ceo') || positionStr.includes('chief executive');
-    const noSupervisor = !emp.supervisor;
-    const selfRef = emp.supervisor && emp.supervisor._id === emp._id;
+    const effectiveSupervisor = getEffectiveSupervisor(emp);
+    const noSupervisor = !effectiveSupervisor;
+    const selfRef = effectiveSupervisor && effectiveSupervisor._id === emp._id;
     return isCEO || noSupervisor || selfRef;
   }) || employees[0];
 
@@ -182,108 +197,46 @@ export function buildTreeWithValidation(employees: Employee[], selectedOrgTeamId
   // Find any orphans (employees not placed in tree)
   const orphans = employees.filter(emp => !placed.has(emp._id));
 
-  // Check if orphan ratio is too high - indicates data problem
-  const orphanRatio = orphans.length / employees.length;
-  const ORPHAN_THRESHOLD = 0.3; // 30% orphans suggests data issue
-
-  if (orphans.length > 0 && orphanRatio > ORPHAN_THRESHOLD) {
-    // Too many orphans - likely a data integrity issue
-    // Analyze each orphan to determine the specific issue
-
-    // Group orphans by their team to detect "team without head" pattern
-    const teamOrphans = new Map<string, { teamName: string; employees: typeof orphans }>();
+  // Return orphans separately instead of attaching to root or raising error
+  if (orphans.length > 0) {
+    console.log('Orphan employees found:', orphans.map(e => e.name));
+    // Add orphan metadata for diagnostics
+    const orphanIssues: Array<{ _id: string; name: string; issue: string }> = [];
 
     orphans.forEach(orphan => {
       const team = orphan.team;
-      const teamId = team && typeof team === 'object' ? team._id : null;
       const teamName = team ? (typeof team === 'object' ? team.name : String(team)) : null;
-
-      if (teamId && teamName) {
-        if (!teamOrphans.has(teamId)) {
-          teamOrphans.set(teamId, { teamName, employees: [] });
-        }
-        teamOrphans.get(teamId)!.employees.push(orphan);
-      }
-    });
-
-    // Check if orphans are mostly from teams without heads
-    const orphanTeamsWithoutHeads: string[] = [];
-    teamOrphans.forEach((data, _teamId) => {
-      // If all employees in this team are orphans AND none have a supervisor,
-      // the team likely has no Head of Team assigned
-      const allNoSupervisor = data.employees.every(emp => !emp.supervisor);
-      if (allNoSupervisor && data.employees.length > 0) {
-        orphanTeamsWithoutHeads.push(data.teamName);
-      }
-    });
-
-    // Add orphan info to issues list with better context
-    orphans.forEach(orphan => {
-      const team = orphan.team;
-      const teamName = team ? (typeof team === 'object' ? team.name : String(team)) : null;
+      const orphanSupervisor = getEffectiveSupervisor(orphan);
 
       let issueDescription: string;
-      if (!orphan.supervisor && teamName && orphanTeamsWithoutHeads.includes(teamName)) {
-        issueDescription = `Team "${teamName}" has no Head of Team assigned`;
-      } else if (orphan.supervisor) {
-        const supervisorName = orphan.supervisor.name || orphan.supervisor._id;
-        if (!employeeMap.has(orphan.supervisor._id)) {
+      if (!orphanSupervisor && !teamName) {
+        issueDescription = 'No supervisor and no team assigned';
+      } else if (!orphanSupervisor && teamName) {
+        issueDescription = `No supervisor set (in team "${teamName}")`;
+      } else if (orphanSupervisor) {
+        const supervisorName = orphanSupervisor.name || orphanSupervisor._id;
+        if (!employeeMap.has(orphanSupervisor._id)) {
           issueDescription = `Supervisor "${supervisorName}" not found in active employees`;
         } else {
           issueDescription = `Supervisor "${supervisorName}" - check supervisor chain`;
         }
-      } else if (teamName) {
-        issueDescription = `No supervisor set (in team "${teamName}")`;
       } else {
-        issueDescription = `No supervisor and no team assigned`;
+        issueDescription = 'Cannot connect to organization root';
       }
 
-      issues.push({
+      orphanIssues.push({
         _id: orphan._id,
         name: orphan.name,
         issue: issueDescription
       });
     });
 
-    // Build a more specific hint based on detected issues
-    const hints: string[] = [];
-    if (orphanTeamsWithoutHeads.length > 0) {
-      hints.push(`• Teams without Head of Team: ${orphanTeamsWithoutHeads.join(', ')}`);
-    }
-    const missingSupers = issues.filter(i => i.issue.includes('not found in active'));
-    if (missingSupers.length > 0) {
-      hints.push(`• Employees with supervisors who are not in "Active Employees"`);
-    }
-    const noSuperNoTeam = issues.filter(i => i.issue.includes('No supervisor and no team'));
-    if (noSuperNoTeam.length > 0) {
-      hints.push(`• Employees with no supervisor and no team assigned`);
-    }
-    if (hints.length === 0) {
-      hints.push(`• Check supervisor assignments and team configurations`);
-    }
-
-    return {
-      tree: null,
-      error: {
-        type: 'too_many_orphans',
-        message: `Data integrity issue detected: ${orphans.length} of ${employees.length} employees (${Math.round(orphanRatio * 100)}%) could not be placed in the org chart hierarchy.`,
-        hint: `To fix this, check:\n${hints.join('\n')}`,
-        affectedEmployees: issues
-      },
-      availableOrganizations: null
-    };
+    // Store orphan metadata but don't block tree rendering
+    console.log('Orphan analysis:', orphanIssues);
   }
 
-  // Attach orphans to root (normal behavior for small number of orphans)
-  if (orphans.length > 0) {
-    console.log('Orphan employees attached to root:', orphans.map(e => e.name));
-    orphans.forEach(orphan => {
-      rootNode.children.push({ employee: orphan, children: [] });
-      placed.add(orphan._id);
-    });
-  }
+  return { tree: rootNode, error: null, availableOrganizations: null, orphans };
 
-  return { tree: rootNode, error: null, availableOrganizations: null };
 }
 
 function buildNodeSimple(
@@ -294,11 +247,13 @@ function buildNodeSimple(
   placed.add(employee._id);
 
   // Find direct children - employees whose supervisor is this employee
+  // Uses visualSupervisor when available (includes vacancies in hierarchy)
   const children: TreeNode[] = [];
 
   employeeMap.forEach(emp => {
     if (placed.has(emp._id)) return;
-    if (emp.supervisor && emp.supervisor._id === employee._id) {
+    const empSupervisor = getEffectiveSupervisor(emp);
+    if (empSupervisor && empSupervisor._id === employee._id) {
       children.push(buildNodeSimple(emp, employeeMap, placed));
     }
   });

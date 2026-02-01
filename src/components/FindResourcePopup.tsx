@@ -23,10 +23,13 @@ interface FindResourcePopupProps {
   isOpen: boolean;
   onClose: () => void;
   employees: Employee[];
-  skeletonId: string;
-  teamId: string | null;
-  onMoveImmediately: (employeeId: string) => void;
-  onInitiateChange: (employeeId: string) => void;
+  skeletonId?: string;
+  teamId?: string | null;
+  onMoveImmediately?: (employeeId: string) => void;
+  onInitiateChange?: (employeeId: string) => void;
+  mode?: 'find_resource' | 'view_orphans';
+  placedEmployeeIds?: Set<string>;
+  orphanReasons?: Map<string, string>;
 }
 
 export default function FindResourcePopup({
@@ -37,6 +40,9 @@ export default function FindResourcePopup({
   teamId: _teamId, // Reserved for future team-based filtering
   onMoveImmediately,
   onInitiateChange,
+  mode = 'find_resource',
+  placedEmployeeIds,
+  orphanReasons,
 }: FindResourcePopupProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
@@ -49,17 +55,23 @@ export default function FindResourcePopup({
 
   // Filter out skeleton employees and apply search
   const filteredEmployees = useMemo(() => {
-    const realEmployees = employees.filter(e => !e.pending);
-    if (!searchQuery.trim()) return realEmployees;
+    let baseEmployees = employees.filter(e => !e.pending);
+
+    // In orphan mode, only show employees NOT in the tree
+    if (mode === 'view_orphans' && placedEmployeeIds) {
+      baseEmployees = baseEmployees.filter(e => !placedEmployeeIds.has(e._id));
+    }
+
+    if (!searchQuery.trim()) return baseEmployees;
     const query = searchQuery.toLowerCase();
-    return realEmployees.filter(emp => {
+    return baseEmployees.filter(emp => {
       const name = emp.name.toLowerCase();
       const position = typeof emp.position === 'object'
         ? emp.position?.name?.toLowerCase() || ''
         : (emp.position || '').toLowerCase();
       return name.includes(query) || position.includes(query);
     });
-  }, [employees, searchQuery]);
+  }, [employees, searchQuery, mode, placedEmployeeIds]);
 
   const handleSelectEmployee = (emp: Employee) => {
     setSelectedEmployee(emp);
@@ -67,14 +79,14 @@ export default function FindResourcePopup({
   };
 
   const handleMoveImmediately = () => {
-    if (selectedEmployee) {
+    if (selectedEmployee && onMoveImmediately) {
       onMoveImmediately(selectedEmployee._id);
       handleClose();
     }
   };
 
   const handleInitiateChange = () => {
-    if (selectedEmployee) {
+    if (selectedEmployee && onInitiateChange) {
       onInitiateChange(selectedEmployee._id);
       handleClose();
     }
@@ -107,7 +119,7 @@ export default function FindResourcePopup({
       <ModalOverlay />
       <ModalContent bg={bgColor}>
         <ModalHeader fontSize="md">
-          {showActions ? 'Choose Action' : 'Find Resource'}
+          {showActions ? 'Choose Action' : (mode === 'view_orphans' ? 'Orphaned Employees' : 'Find Resource')}
         </ModalHeader>
         <ModalCloseButton />
 
@@ -158,6 +170,11 @@ export default function FindResourcePopup({
                             {getPositionText(emp)}
                             {getTeamText(emp) && ` • ${getTeamText(emp)}`}
                           </Text>
+                          {mode === 'view_orphans' && orphanReasons?.has(emp._id) && (
+                            <Text fontSize="xs" color="orange.500" fontStyle="italic">
+                              {orphanReasons.get(emp._id)}
+                            </Text>
+                          )}
                         </VStack>
                       </HStack>
                     ))}
@@ -166,11 +183,13 @@ export default function FindResourcePopup({
               </Box>
 
               <Text fontSize="xs" color="gray.500">
-                Select an employee to move to this position.
+                {mode === 'view_orphans'
+                  ? 'These employees are not connected to the organization chart.'
+                  : 'Select an employee to move to this position.'}
               </Text>
             </VStack>
-          ) : (
-            // Action selection view
+          ) : mode === 'find_resource' ? (
+            // Action selection view (only in find_resource mode)
             <VStack spacing={4} align="stretch">
               {selectedEmployee && (
                 <HStack
@@ -235,7 +254,7 @@ export default function FindResourcePopup({
                 </Button>
               </VStack>
             </VStack>
-          )}
+          ) : null}
         </ModalBody>
 
         <ModalFooter>

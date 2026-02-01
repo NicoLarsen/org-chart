@@ -42,9 +42,9 @@ export default function EmployeeCard({
   isCollapsed = false,
   isHeadOfTeam = false,
   onToggle,
-  onAddMember,
+  onAddMember: _onAddMember,
   onAddTeam,
-  onOpenTeam,
+  onOpenTeam: _onOpenTeam,
   onSkeletonDelete,
   onSkeletonAddEmployee,
   onSkeletonOpenVacancy,
@@ -63,10 +63,6 @@ export default function EmployeeCard({
   const expanderBg = useColorModeValue('blue.500', 'blue.400');
   const addTeamBg = useColorModeValue('green.500', 'green.400');
   const addTeamHoverBg = useColorModeValue('green.600', 'green.300');
-  const addMemberBg = useColorModeValue('purple.500', 'purple.400');
-  const addMemberHoverBg = useColorModeValue('purple.600', 'purple.300');
-  const openTeamBg = useColorModeValue('teal.500', 'teal.400');
-  const openTeamHoverBg = useColorModeValue('teal.600', 'teal.300');
 
   const handleCardClick = () => {
     if (hailer && employee._id) {
@@ -90,11 +86,53 @@ export default function EmployeeCard({
   const flagGradient = getFlagGradient(employee.nationality);
   const isPending = employee.pending;
 
+  // Vacancy card - render as special vacancy card (handles both old vacancyHead and new vacancyData)
+  const vacancyInfo = employee.vacancyHead || employee.vacancyData;
+  if (vacancyInfo) {
+    const handleFillVacancy = (skeletonId: string) => {
+      onSkeletonAddEmployee?.(skeletonId);
+    };
+
+    const handleFindResource = (skeletonId: string) => {
+      onSkeletonFindResource?.(skeletonId);
+    };
+
+    const handleVacancyAddTeam = (skeletonId: string) => {
+      onAddTeam?.(skeletonId);
+    };
+
+    return (
+      <SkeletonCard
+        skeleton={{
+          tempId: employee._id,
+          parentId: null,
+          parentTeamId: (employee.team && typeof employee.team === 'object') ? employee.team._id : null,
+          state: 'has_vacancy',
+          createdAt: employee.created || Date.now(),
+          vacancy: vacancyInfo,
+        }}
+        onDelete={() => {}} // No delete for vacancy nodes
+        onAddEmployee={handleFillVacancy}
+        onOpenVacancy={() => {}} // Already a vacancy
+        onFindResource={handleFindResource}
+        onAddTeam={handleVacancyAddTeam}
+        hasSubordinates={childrenTeams.length > 0}
+        isCollapsed={isCollapsed}
+        onToggle={onToggle}
+        teamName={childrenTeams.length > 0 ? childrenTeams[0].name : undefined}
+      />
+    );
+  }
+
   // Skeleton card for pending positions - uses SkeletonCard component
   if (isPending && employee.skeletonData) {
     const handleSkeletonCardDelete = (e: React.MouseEvent) => {
       e.stopPropagation();
       onSkeletonDelete?.(employee._id);
+    };
+
+    const handleSkeletonAddTeam = (skeletonId: string) => {
+      onAddTeam?.(skeletonId);
     };
 
     return (
@@ -104,6 +142,7 @@ export default function EmployeeCard({
         onAddEmployee={onSkeletonAddEmployee || (() => {})}
         onOpenVacancy={onSkeletonOpenVacancy || (() => {})}
         onFindResource={onSkeletonFindResource || (() => {})}
+        onAddTeam={handleSkeletonAddTeam}
         hasSubordinates={hasSkeletonSubordinates}
       />
     );

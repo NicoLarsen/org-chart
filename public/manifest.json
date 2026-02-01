@@ -3,9 +3,9 @@
   "contributors": [
     "John Hailero <john@magic.apps>"
   ],
-  "appId": "6957dd13cb9fa11bbef9fcbb",
-  "version": "1.3.5",
-  "versionDescription": "Hide Add Team button on employee cards in public mode",
+  "appId": "697dc88053b79af591538855",
+  "version": "1.3.6",
+  "versionDescription": "Fix localStorage namespace to prevent stale skeleton data across workspaces",
   "config": {
     "fields": {
       "workflowId": {
